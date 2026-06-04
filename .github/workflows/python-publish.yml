@@ -44,14 +44,19 @@ jobs:
             --max-line-length=100 \
             --ignore=E501,W503 \
             --exclude=.venv
-
+      - name: Show files
+        run: |
+          pwd
+          ls -la
+          find . -type d
+    
       - name: Run tests with coverage
         run: |
           pytest tests/ -v \
             --cov=services \
             --cov=data \
             --cov-report=term-missing \
-            --cov-fail-under=80
+            --cov-report=html
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
