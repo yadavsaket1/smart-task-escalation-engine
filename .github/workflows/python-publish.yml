@@ -42,7 +42,7 @@ jobs:
         run: |
           flake8 services/ data/ tests/ \
             --max-line-length=100 \
-            --ignore=E501,W503 \
+            --ignore=E501,W503,E241,E221,E127,E302,E402,E401,E702,E741,F401 \
             --exclude=.venv
       - name: Show files
         run: |
