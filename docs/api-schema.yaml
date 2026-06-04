@@ -1,0 +1,575 @@
+openapi: 3.0.3
+info:
+  title: Smart Task Escalation Engine API
+  description: API for automated task escalation detection, workflow management, and notification delivery
+  version: 1.0.0
+  contact:
+    name: Powerweave Engineering Team
+    email: engineering@powerweave.com
+
+servers:
+  - url: https://api.powerweave.com/v1
+    description: Production server
+  - url: https://api-staging.powerweave.com/v1
+    description: Staging server
+  - url: http://localhost:3001/v1
+    description: Local development server
+
+security:
+  - bearerAuth: []
+
+paths:
+  /escalations:
+    post:
+      summary: Create manual escalation
+      description: Allows managers to manually trigger an escalation for a task
+      operationId: createEscalation
+      tags:
+        - Escalations
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - taskId
+                - escalationReason
+              properties:
+                taskId:
+                  type: string
+                  format: uuid
+                  description: UUID of the task to escalate
+                  example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                escalationReason:
+                  type: string
+                  minLength: 10
+                  maxLength: 500
+                  description: Reason for manual escalation
+                  example: "Critical deadline approaching and no progress visible"
+                targetLevel:
+                  type: integer
+                  minimum: 1
+                  maximum: 3
+                  description: Escalation level (1 = immediate manager, 2 = skip-level, 3 = executive)
+                  example: 1
+      responses:
+        '201':
+          description: Escalation created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Escalation'
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Validation failed"
+                message: "escalationReason must be at least 10 characters"
+                code: "VALIDATION_ERROR"
+        '403':
+          description: Insufficient permissions (manager role required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Active escalation already exists for this task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Conflict"
+                message: "An active escalation already exists for this task"
+                code: "DUPLICATE_ESCALATION"
+
+  /escalations/{taskId}:
+    get:
+      summary: Fetch escalation history
+      description: Returns all escalations for a specific task, ordered by creation date (newest first)
+      operationId: getEscalationHistory
+      tags:
+        - Escalations
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: UUID of the task
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Escalation history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  taskId:
+                    type: string
+                    format: uuid
+                  escalations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Escalation'
+              example:
+                taskId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                escalations:
+                  - id: "esc-123-abc"
+                    taskId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    escalatedFrom:
+                      id: "emp-456"
+                      name: "John Doe"
+                      email: "john.doe@company.com"
+                    escalatedTo:
+                      id: "mgr-789"
+                      name: "Jane Manager"
+                      email: "jane.manager@company.com"
+                    escalationLevel: 1
+                    status: "acknowledged"
+                    escalationReason: "Task overdue by 3 days"
+                    createdAt: "2026-05-24T10:30:00Z"
+                    acknowledgedAt: "2026-05-24T14:20:00Z"
+                    resolvedAt: null
+        '403':
+          description: Insufficient permissions (can only view own tasks or team tasks)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /escalations/{escalationId}/status:
+    put:
+      summary: Update escalation status
+      description: Updates the status of an escalation (acknowledge or resolve)
+      operationId: updateEscalationStatus
+      tags:
+        - Escalations
+      parameters:
+        - name: escalationId
+          in: path
+          required: true
+          description: UUID of the escalation
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [acknowledged, resolved, cancelled]
+                  description: New escalation status
+                  example: "acknowledged"
+                resolutionNote:
+                  type: string
+                  maxLength: 1000
+                  description: Optional note explaining status change
+                  example: "Task completed ahead of revised deadline"
+      responses:
+        '200':
+          description: Status updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Escalation'
+        '400':
+          description: Invalid status transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Invalid state transition"
+                message: "Cannot transition from 'resolved' to 'acknowledged'"
+                code: "INVALID_TRANSITION"
+        '403':
+          description: Insufficient permissions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Escalation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /escalations/pending:
+    get:
+      summary: List pending escalations
+      description: Returns all pending escalations for the authenticated manager's team
+      operationId: listPendingEscalations
+      tags:
+        - Escalations
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: Page number for pagination (default 1)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          description: Number of results per page (default 50, max 100)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Pending escalations retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  escalations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Escalation'
+                  pagination:
+                    type: object
+                    properties:
+                      currentPage:
+                        type: integer
+                      totalPages:
+                        type: integer
+                      totalCount:
+                        type: integer
+                      hasNextPage:
+                        type: boolean
+        '403':
+          description: Insufficient permissions (manager role required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /notifications/trigger:
+    post:
+      summary: Manual notification trigger
+      description: Manually triggers a notification for an existing escalation
+      operationId: triggerNotification
+      tags:
+        - Notifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - escalationId
+              properties:
+                escalationId:
+                  type: string
+                  format: uuid
+                  description: UUID of the escalation
+                  example: "esc-123-abc"
+      responses:
+        '202':
+          description: Notification queued for delivery
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Notification queued successfully"
+                  notificationId:
+                    type: string
+                    format: uuid
+                    example: "notif-xyz-789"
+        '403':
+          description: Insufficient permissions (manager role required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Escalation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded (max 10 manual triggers per hour)
+          headers:
+            Retry-After:
+              description: Number of seconds to wait before retrying
+              schema:
+                type: integer
+                example: 3600
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: "Rate limit exceeded"
+                message: "Maximum 10 manual triggers per hour. Try again in 45 minutes."
+                code: "RATE_LIMIT_EXCEEDED"
+
+  /notifications/preferences:
+    get:
+      summary: Get user notification preferences
+      description: Returns notification preferences for the authenticated user
+      operationId: getNotificationPreferences
+      tags:
+        - Notifications
+      responses:
+        '200':
+          description: Preferences retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+
+  /escalations/{escalationId}/audit:
+    get:
+      summary: Get escalation audit trail
+      description: Returns complete audit history for an escalation (admin only)
+      operationId: getEscalationAudit
+      tags:
+        - Audit
+      parameters:
+        - name: escalationId
+          in: path
+          required: true
+          description: UUID of the escalation
+          schema:
+            type: string
+            format: uuid
+        - name: eventType
+          in: query
+          required: false
+          description: Filter by specific event type
+          schema:
+            type: string
+            enum: [escalation_created, escalation_acknowledged, escalation_resolved, notification_sent]
+      responses:
+        '200':
+          description: Audit trail retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  escalationId:
+                    type: string
+                    format: uuid
+                  auditEvents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEvent'
+        '403':
+          description: Insufficient permissions (admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Escalation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT authentication token from HRMS platform
+
+  schemas:
+    Escalation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique escalation identifier
+          example: "esc-123-abc"
+        taskId:
+          type: string
+          format: uuid
+          description: Associated task UUID
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        escalatedFrom:
+          $ref: '#/components/schemas/User'
+        escalatedTo:
+          $ref: '#/components/schemas/User'
+        escalationLevel:
+          type: integer
+          minimum: 1
+          maximum: 3
+          description: Escalation hierarchy level
+          example: 1
+        status:
+          type: string
+          enum: [pending, acknowledged, resolved, cancelled]
+          description: Current escalation status
+          example: "pending"
+        escalationReason:
+          type: string
+          description: Reason for escalation
+          example: "Task overdue by 3 days with no updates"
+        createdAt:
+          type: string
+          format: date-time
+          description: Escalation creation timestamp
+          example: "2026-05-24T10:30:00Z"
+        acknowledgedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Manager acknowledgment timestamp
+          example: "2026-05-24T14:20:00Z"
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Resolution timestamp
+          example: null
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          description: User identifier
+          example: "emp-456"
+        name:
+          type: string
+          description: Full name
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          description: Email address
+          example: "john.doe@company.com"
+        role:
+          type: string
+          enum: [employee, manager, admin]
+          description: User role
+          example: "employee"
+
+    NotificationPreferences:
+      type: object
+      properties:
+        userId:
+          type: string
+          example: "emp-456"
+        emailEnabled:
+          type: boolean
+          description: Email notifications enabled
+          example: true
+        inAppEnabled:
+          type: boolean
+          description: In-app notifications enabled
+          example: true
+        emailFrequency:
+          type: string
+          enum: [immediate, daily_digest, weekly_digest]
+          description: Email notification frequency
+          example: "immediate"
+        quietHours:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              example: false
+            startTime:
+              type: string
+              format: time
+              example: "22:00"
+            endTime:
+              type: string
+              format: time
+              example: "08:00"
+
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "audit-abc-123"
+        escalationId:
+          type: string
+          format: uuid
+          example: "esc-123-abc"
+        eventType:
+          type: string
+          enum: [escalation_created, escalation_acknowledged, escalation_resolved, escalation_cancelled, notification_sent, notification_failed]
+          example: "escalation_acknowledged"
+        eventData:
+          type: object
+          description: Event-specific data (flexible JSONB structure)
+          additionalProperties: true
+          example:
+            previousStatus: "pending"
+            newStatus: "acknowledged"
+            acknowledgedBy: "mgr-789"
+        triggeredBy:
+          $ref: '#/components/schemas/User'
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-05-24T14:20:00Z"
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: "Validation failed"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "escalationReason must be at least 10 characters"
+        code:
+          type: string
+          description: Machine-readable error code
+          example: "VALIDATION_ERROR"
+        details:
+          type: object
+          description: Additional error context (optional)
+          additionalProperties: true

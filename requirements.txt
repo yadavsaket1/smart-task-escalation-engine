@@ -1,0 +1,14 @@
+# Core
+streamlit>=1.35.0
+pandas>=2.0.0
+mcp>=1.0.0
+
+# Gmail API
+google-auth>=2.28.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.120.0
+
+# Env + HTML parsing
+python-dotenv>=1.0.0
+beautifulsoup4>=4.12.0

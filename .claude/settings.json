@@ -1,0 +1,10 @@
+{
+  "claude.model": "claude-sonnet-4-5",
+  "mcpServers": {
+    "escalation-engine": {
+      "command": "D:\\SDLR Project\\smart_task_escalation_engine\\07_prototype\\.venv\\Scripts\\python.exe",
+      "args": ["mcp_server.py"],
+      "cwd": "D:\\SDLR Project\\smart_task_escalation_engine\\07_prototype"
+    }
+  }
+}
