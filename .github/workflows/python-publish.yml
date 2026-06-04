@@ -11,6 +11,7 @@ name: CI Pipeline — Smart Task Escalation Engine
 
 
 on:
+  workflow_dispatch:
   release:
     types: [published]
 
